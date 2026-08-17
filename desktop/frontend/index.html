@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Restora — Recovery &amp; Secure Erase</title>
+<style>
+  :root{
+    --bg:#0B0E13; --panel:#12161D; --raised:#1B212B; --border:#2A323D;
+    --text:#E7EBEF; --muted:#8A93A0; --faint:#4E5561;
+    --cyan:#4FB8DE; --cyan-dim:#2C4A57;
+    --red:#E0524A; --red-dim:#4A2C2C;
+    --amber:#D6A24C; --green:#57B889; --violet:#9E86D6;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-size:13px; -webkit-font-smoothing:antialiased;
+  }
+  .mono{ font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; }
+  .app{ display:grid; grid-template-columns:220px 1fr 300px; grid-template-rows:52px 1fr 30px; height:100vh; }
+
+  .titlebar{ grid-column:1/4; grid-row:1; display:flex; align-items:center; padding:0 16px; border-bottom:1px solid var(--border); gap:10px; }
+  .logo{ width:20px;height:20px;border-radius:4px; background:linear-gradient(135deg,var(--cyan),var(--cyan-dim)); flex-shrink:0; }
+  .titlebar .name{ font-weight:600; letter-spacing:0.02em; font-size:14px;}
+  .titlebar .device{ margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; flex:1; justify-content:flex-end;}
+  .path-input{ background:var(--raised); border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:6px; font-family:inherit; font-size:12px; width:360px;}
+  .ro-badge{ font-size:10px; letter-spacing:0.06em; text-transform:uppercase; color:var(--green); border:1px solid #2c4a3a; background:#122019; padding:3px 7px; border-radius:4px; font-weight:600;}
+
+  .rail{ grid-column:1; grid-row:2/4; border-right:1px solid var(--border); padding:14px 10px; display:flex; flex-direction:column; gap:2px;}
+  .rail-section-label{ font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--faint); padding:14px 10px 6px;}
+  .rail-item{ display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:6px; color:var(--muted); cursor:pointer; font-size:13px; border:none; background:none; width:100%; text-align:left; font-family:inherit;}
+  .rail-item:hover{ background:var(--raised); color:var(--text);}
+  .rail-item.active{ background:var(--cyan-dim); color:var(--cyan); font-weight:500;}
+  .rail-item.danger.active{ background:var(--red-dim); color:var(--red);}
+  .rail-bottom{ margin-top:auto; padding:10px; color:var(--faint); font-size:11px; border-top:1px solid var(--border); }
+
+  .workspace{ grid-column:2; grid-row:2; overflow:auto; padding:20px 24px; }
+  .panel{ display:none; }
+  .panel.active{ display:block; }
+  .workspace-header{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px;}
+  .workspace-header h1{ font-size:16px; margin:0; font-weight:600;}
+  .workspace-header .sub{ color:var(--muted); font-size:12px; margin-top:2px;}
+
+  .toolbar{ display:flex; gap:8px; margin-bottom:16px; align-items:center; flex-wrap:wrap;}
+  .btn{ font-family:inherit; font-size:12.5px; padding:7px 13px; border-radius:6px; border:1px solid var(--border); background:var(--raised); color:var(--text); cursor:pointer; display:flex; align-items:center; gap:6px;}
+  .btn:hover{ border-color:#3a4451;}
+  .btn:disabled{ opacity:0.5; cursor:not-allowed;}
+  .btn.primary{ background:var(--cyan); border-color:var(--cyan); color:#06222c; font-weight:600;}
+  .btn.danger{ background:var(--red); border-color:var(--red); color:#2b0a08; font-weight:600;}
+  .btn.ghost{ background:transparent;}
+  input[type=text], select{ background:var(--raised); border:1px solid var(--border); color:var(--text); padding:7px 10px; border-radius:6px; font-family:inherit; font-size:12.5px;}
+  label.inline{ display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px;}
+
+  .progress-card{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:18px;}
+  .progress-title{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:12.5px; color:var(--muted);}
+  .grid{ display:grid; grid-template-columns:repeat(64, 1fr); gap:2px; }
+  .cell{ aspect-ratio:1; border-radius:1.5px; background:var(--raised); }
+  .cell.done{ background:var(--cyan); }
+
+  .table-card{ background:var(--panel); border:1px solid var(--border); border-radius:8px; overflow:hidden;}
+  table{ width:100%; border-collapse:collapse; font-size:12.5px;}
+  thead th{ text-align:left; font-weight:500; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.04em; padding:10px 12px; border-bottom:1px solid var(--border); background:var(--raised);}
+  tbody td{ padding:9px 12px; border-bottom:1px solid #1c222b; vertical-align:middle;}
+  tbody tr:hover{ background:var(--raised); }
+  .conf-bar{ width:64px; height:5px; background:#232a34; border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; margin-right:6px;}
+  .conf-fill{ height:100%; border-radius:3px;}
+  .badge{ font-size:10px; padding:2px 7px; border-radius:4px; font-weight:600; letter-spacing:0.02em;}
+  .badge.meta{ background:#122631; color:var(--cyan);}
+  .badge.carve{ background:#241b33; color:var(--violet);}
+
+  .statusbar{ grid-column:1/4; grid-row:3; border-top:1px solid var(--border); display:flex; align-items:center; padding:0 16px; gap:18px; font-size:11px; color:var(--muted);}
+
+  .warn-banner{ display:flex; gap:10px; align-items:flex-start; background:#241a1a; border:1px solid #4a2c2c; color:#e8b3ae; padding:12px 14px; border-radius:8px; font-size:12px; margin-bottom:16px; line-height:1.5;}
+  .warn-banner b{color:var(--red);}
+  .confirm-box{ display:flex; gap:8px; align-items:center; margin-top:12px;}
+
+  .log{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:11.5px; max-height:160px; overflow:auto; margin-top:12px;}
+  .log div{ padding:2px 0; color:var(--muted);}
+  .log div.found{ color:var(--green); }
+
+  .inspector{ grid-column:3; grid-row:2; border-left:1px solid var(--border); padding:18px; overflow:auto;}
+  .inspector h3{ font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin:0 0 12px;}
+  .kv{ display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid #1c222b; font-size:12px;}
+  .kv .k{ color:var(--muted);}
+  .kv .v{ font-family:monospace; font-size:11.5px; text-align:right;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="titlebar">
+    <div class="logo"></div>
+    <div class="name">Restora</div>
+    <div class="device">
+      <input class="path-input" id="imagePathInput" type="text" placeholder="/path/to/disk-image.img" value="">
+      <div class="ro-badge" id="modeBadge">Read-only</div>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="rail-section-label">Workspace</div>
+    <button class="rail-item active" data-panel="recover-panel">Recover</button>
+    <button class="rail-item danger" data-panel="wipe-panel">Secure Erase</button>
+    <button class="rail-item" data-panel="sessions-panel">Sessions</button>
+    <div class="rail-bottom mono">Restora desktop — Phase 7</div>
+  </div>
+
+  <div class="workspace">
+
+    <!-- RECOVER PANEL -->
+    <div class="panel active" id="recover-panel">
+      <div class="workspace-header">
+        <div>
+          <h1>Scan &amp; Recover</h1>
+          <div class="sub" id="scanSub">Enter an image path above, then choose a scan mode.</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn primary" id="quickScanBtn">Quick Scan</button>
+        <button class="btn" id="deepScanBtn">Deep Scan</button>
+        <div style="flex:1"></div>
+        <span id="selectedCount" style="color:var(--muted);font-size:12px;">0 selected</span>
+        <input type="text" id="recoverDestInput" placeholder="destination folder" style="width:220px;">
+        <button class="btn primary" id="recoverBtn">Recover selected →</button>
+      </div>
+
+      <div class="progress-card" id="progressCard" style="display:none;">
+        <div class="progress-title">
+          <span id="progressPhase">carving</span>
+          <span class="mono" id="progressPct">0%</span>
+        </div>
+        <div class="grid" id="progressGrid"></div>
+      </div>
+
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr><th></th><th>Name</th><th>Source</th><th>Size</th><th>Confidence</th></tr>
+          </thead>
+          <tbody id="resultsBody">
+            <tr><td colspan="5" style="color:var(--faint);text-align:center;padding:24px;">No scan run yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="log" id="eventLog" style="display:none;"></div>
+    </div>
+
+    <!-- WIPE PANEL -->
+    <div class="panel" id="wipe-panel">
+      <div class="workspace-header">
+        <div>
+          <h1>Secure Erase — Free Space</h1>
+          <div class="sub">Overwrites only unallocated space. Never touches live files.</div>
+        </div>
+      </div>
+
+      <div class="warn-banner">
+        <b>Destructive.</b> This permanently destroys any deleted-but-recoverable data currently
+        sitting in free space on the image above — including anything you might still want to
+        recover. Overwrite-based wiping is unreliable on SSDs; check the box below if this image
+        represents flash media, and the wipe will be refused with an explanation instead of run.
+      </div>
+
+      <div class="toolbar">
+        <label class="inline">Pattern
+          <select id="patternSelect">
+            <option value="zero">Zero (1-pass)</option>
+            <option value="random">Random (1-pass)</option>
+            <option value="dod3">DoD 5220.22-M (3-pass)</option>
+          </select>
+        </label>
+        <label class="inline"><input type="checkbox" id="assumeSsdCheck"> Assume SSD (refuse overwrite)</label>
+        <label class="inline"><input type="checkbox" id="verifyCheck" checked> Verify with carver after wipe</label>
+      </div>
+
+      <div class="confirm-box">
+        <input type="text" id="wipeConfirmInput" placeholder="Type WIPE to enable the button">
+        <button class="btn danger" id="wipeBtn" disabled>Wipe free space</button>
+      </div>
+
+      <div class="log" id="wipeLog" style="display:none;"></div>
+    </div>
+
+    <!-- SESSIONS PANEL -->
+    <div class="panel" id="sessions-panel">
+      <div class="workspace-header">
+        <div>
+          <h1>Sessions</h1>
+          <div class="sub">Persisted scans — survive closing and reopening the app.</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <input type="text" id="dbPathInput" placeholder="/path/to/sessions.db" style="width:320px;">
+        <button class="btn" id="saveSessionBtn">Save current scan</button>
+        <button class="btn" id="listSessionsBtn">Refresh list</button>
+      </div>
+
+      <div class="table-card">
+        <table>
+          <thead><tr><th>ID</th><th>Updated</th><th>Device</th><th>State</th><th>Files</th><th></th></tr></thead>
+          <tbody id="sessionsBody">
+            <tr><td colspan="6" style="color:var(--faint);text-align:center;padding:24px;">No sessions loaded.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="inspector">
+    <h3>Selected file</h3>
+    <div id="inspectorEmpty" style="color:var(--faint);font-size:12px;">Select a row to see details.</div>
+    <div id="inspectorContent" style="display:none;">
+      <div class="kv"><span class="k">Name</span><span class="v" id="insName">—</span></div>
+      <div class="kv"><span class="k">Size</span><span class="v" id="insSize">—</span></div>
+      <div class="kv"><span class="k">Confidence</span><span class="v" id="insConf">—</span></div>
+      <div class="kv"><span class="k">Source</span><span class="v" id="insSource">—</span></div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span id="statusText">Ready.</span>
+  </div>
+
+</div>
+
+<script>
+const invoke = (...args) => window.__TAURI__.core.invoke(...args);
+const listen = (...args) => window.__TAURI__.event.listen(...args);
+
+let currentResults = [];
+let selectedIds = new Set();
+
+// ---- Panel switching ----
+document.querySelectorAll('.rail-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.rail-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.panel).classList.add('active');
+  });
+});
+
+function setStatus(text) {
+  document.getElementById('statusText').textContent = text;
+}
+
+function imagePath() {
+  return document.getElementById('imagePathInput').value.trim();
+}
+
+// ---- Results rendering ----
+function renderResults(results) {
+  currentResults = results;
+  selectedIds.clear();
+  updateSelectedCount();
+
+  const body = document.getElementById('resultsBody');
+  if (results.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--faint);text-align:center;padding:24px;">No deleted files found.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = results.map(f => {
+    const sourceLabel = f.source.Metadata
+      ? `<span class="badge meta">${f.source.Metadata.filesystem}</span>`
+      : `<span class="badge carve">Carved · ${f.source.Carved.format}</span>`;
+    const confColor = f.confidence >= 80 ? 'var(--green)' : f.confidence >= 50 ? 'var(--amber)' : 'var(--red)';
+    return `
+      <tr data-id="${f.id}">
+        <td><input type="checkbox" class="row-check" data-id="${f.id}"></td>
+        <td>${f.name}</td>
+        <td>${sourceLabel}</td>
+        <td class="mono">${f.size}</td>
+        <td><span class="conf-bar"><span class="conf-fill" style="width:${f.confidence}%;background:${confColor};"></span></span>${f.confidence}%</td>
+      </tr>`;
+  }).join('');
+
+  document.querySelectorAll('.row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = Number(cb.dataset.id);
+      if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+      updateSelectedCount();
+    });
+  });
+
+  document.querySelectorAll('#resultsBody tr').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.matches('input')) return;
+      const id = Number(tr.dataset.id);
+      const file = currentResults.find(f => f.id === id);
+      showInspector(file);
+    });
+  });
+}
+
+function updateSelectedCount() {
+  document.getElementById('selectedCount').textContent = `${selectedIds.size} selected`;
+}
+
+function showInspector(file) {
+  document.getElementById('inspectorEmpty').style.display = 'none';
+  document.getElementById('inspectorContent').style.display = 'block';
+  document.getElementById('insName').textContent = file.name;
+  document.getElementById('insSize').textContent = file.size + ' bytes';
+  document.getElementById('insConf').textContent = file.confidence + '%';
+  document.getElementById('insSource').textContent = file.source.Metadata
+    ? `Metadata (${file.source.Metadata.filesystem})`
+    : `Carved (${file.source.Carved.format})`;
+}
+
+// ---- Scanning ----
+document.getElementById('quickScanBtn').addEventListener('click', async () => {
+  const path = imagePath();
+  if (!path) { setStatus('Enter an image path first.'); return; }
+  setStatus('Running quick scan…');
+  try {
+    const session = await invoke('scan_quick', { imagePath: path });
+    window.__lastSession = session;
+    document.getElementById('scanSub').textContent =
+      `Detected: ${session.filesystem_detected ?? 'none'} — ${session.results.length} file(s) found`;
+    renderResults(session.results);
+    setStatus('Quick scan complete.');
+  } catch (e) {
+    setStatus('Scan failed: ' + e);
+  }
+});
+
+document.getElementById('deepScanBtn').addEventListener('click', async () => {
+  const path = imagePath();
+  if (!path) { setStatus('Enter an image path first.'); return; }
+
+  const progressCard = document.getElementById('progressCard');
+  const grid = document.getElementById('progressGrid');
+  const log = document.getElementById('eventLog');
+  progressCard.style.display = 'block';
+  log.style.display = 'block';
+  log.innerHTML = '';
+  grid.innerHTML = Array.from({length: 256}, () => '<div class="cell"></div>').join('');
+
+  setStatus('Running deep scan…');
+  const found = [];
+
+  const unlisten = await listen('scan-event', (event) => {
+    const e = event.payload;
+    const logLine = document.createElement('div');
+    if (e.type === 'PhaseStarted') {
+      logLine.textContent = `[phase started] ${e.phase}`;
+    } else if (e.type === 'Progress') {
+      const pct = e.total_bytes > 0 ? Math.floor((e.scanned_bytes / e.total_bytes) * 100) : 0;
+      document.getElementById('progressPhase').textContent = e.phase;
+      document.getElementById('progressPct').textContent = pct + '%';
+      const cellsToFill = Math.floor((pct / 100) * 256);
+      grid.querySelectorAll('.cell').forEach((c, i) => c.classList.toggle('done', i < cellsToFill));
+      return; // don't spam the log with every progress tick
+    } else if (e.type === 'FileFound') {
+      found.push(e.file);
+      logLine.textContent = `[found] ${e.file.name} (${e.file.confidence}% confidence)`;
+      logLine.className = 'found';
+    } else if (e.type === 'PhaseCompleted') {
+      logLine.textContent = `[phase completed] ${e.phase}`;
+    } else if (e.type === 'Completed') {
+      logLine.textContent = `[completed] ${e.total_found} file(s) found`;
+    } else if (e.type === 'Failed') {
+      logLine.textContent = `[failed] ${e.message}`;
+    }
+    log.appendChild(logLine);
+    log.scrollTop = log.scrollHeight;
+  });
+
+  try {
+    const session = await invoke('scan_deep', { imagePath: path });
+    window.__lastSession = session;
+    document.getElementById('scanSub').textContent =
+      `Detected: ${session.filesystem_detected ?? 'none'} — ${session.results.length} file(s) found`;
+    renderResults(session.results);
+    setStatus('Deep scan complete.');
+  } catch (e) {
+    setStatus('Scan failed: ' + e);
+  } finally {
+    unlisten();
+  }
+});
+
+// ---- Recovery ----
+document.getElementById('recoverBtn').addEventListener('click', async () => {
+  const dest = document.getElementById('recoverDestInput').value.trim();
+  if (!dest) { setStatus('Enter a destination folder first.'); return; }
+  if (selectedIds.size === 0) { setStatus('Select at least one file first.'); return; }
+
+  const filesToRecover = currentResults.filter(f => selectedIds.has(f.id));
+  setStatus(`Recovering ${filesToRecover.length} file(s)…`);
+  try {
+    const results = await invoke('recover_selected', {
+      imagePath: imagePath(),
+      files: filesToRecover,
+      destinationDir: dest,
+    });
+    const okCount = results.filter(r => r.success).length;
+    setStatus(`Recovered ${okCount}/${results.length} file(s) to ${dest}.`);
+  } catch (e) {
+    setStatus('Recovery failed: ' + e);
+  }
+});
+
+// ---- Secure erase ----
+document.getElementById('wipeConfirmInput').addEventListener('input', (e) => {
+  document.getElementById('wipeBtn').disabled = e.target.value !== 'WIPE';
+});
+
+document.getElementById('wipeBtn').addEventListener('click', async () => {
+  const path = imagePath();
+  if (!path) { setStatus('Enter an image path first.'); return; }
+
+  const pattern = document.getElementById('patternSelect').value;
+  const assumeSsd = document.getElementById('assumeSsdCheck').checked;
+  const verify = document.getElementById('verifyCheck').checked;
+  const log = document.getElementById('wipeLog');
+  log.style.display = 'block';
+
+  setStatus('Wiping free space…');
+  try {
+    const result = await invoke('wipe_free_space', {
+      imagePath: path, patternName: pattern, assumeSsd, verify,
+    });
+    log.innerHTML = `
+      <div>Pattern: ${result.pattern_name}</div>
+      <div>Ranges wiped: ${result.ranges_wiped}</div>
+      <div>Bytes written: ${result.bytes_written}</div>
+      ${result.verification ? `<div class="found">Post-wipe verification: ${result.verification.carved_files_found_after_wipe} recoverable signature(s) remaining.</div>` : ''}
+    `;
+    setStatus('Wipe complete.');
+    document.getElementById('wipeConfirmInput').value = '';
+    document.getElementById('wipeBtn').disabled = true;
+  } catch (e) {
+    log.innerHTML = `<div style="color:var(--red);">${e}</div>`;
+    setStatus('Wipe failed or refused.');
+  }
+});
+
+// ---- Sessions ----
+function dbPath() {
+  return document.getElementById('dbPathInput').value.trim();
+}
+
+document.getElementById('saveSessionBtn').addEventListener('click', async () => {
+  if (!window.__lastSession) { setStatus('Run a scan first.'); return; }
+  const db = dbPath();
+  if (!db) { setStatus('Enter a sessions database path first.'); return; }
+  setStatus('Saving session…');
+  try {
+    await invoke('save_session', { dbPath: db, session: window.__lastSession });
+    setStatus('Session saved.');
+  } catch (e) {
+    setStatus('Save failed: ' + e);
+  }
+});
+
+document.getElementById('listSessionsBtn').addEventListener('click', async () => {
+  const db = dbPath();
+  if (!db) { setStatus('Enter a sessions database path first.'); return; }
+  try {
+    const summaries = await invoke('list_sessions', { dbPath: db });
+    const body = document.getElementById('sessionsBody');
+    if (summaries.length === 0) {
+      body.innerHTML = '<tr><td colspan="6" style="color:var(--faint);text-align:center;padding:24px;">No sessions found.</td></tr>';
+      return;
+    }
+    body.innerHTML = summaries.map(s => `
+      <tr>
+        <td class="mono">${s.id}</td>
+        <td class="mono">${s.updated_at}</td>
+        <td>${s.device_label}</td>
+        <td>${s.state}</td>
+        <td>${s.files_found}</td>
+        <td><button class="btn ghost load-session-btn" data-id="${s.id}">Load</button></td>
+      </tr>`).join('');
+    document.querySelectorAll('.load-session-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const session = await invoke('load_session', { dbPath: db, sessionId: btn.dataset.id });
+        renderResults(session.results);
+        document.querySelector('[data-panel="recover-panel"]').click();
+        setStatus(`Loaded session ${session.id}.`);
+      });
+    });
+  } catch (e) {
+    setStatus('List failed: ' + e);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+[package]
+name = "restora-desktop"
+version = "0.1.0"
+edition = "2021"
+
+# This crate is intentionally OUTSIDE the main workspace (restora/Cargo.toml).
+# The Tauri 2.x dependency tree requires a Rust 2024-edition-aware
+# toolchain (rustc 1.85+) — if this were a workspace member, every
+# `cargo build`/`cargo test` at the workspace root would immediately fail
+# on any machine (like the sandbox this project was largely built and
+# tested in) whose toolchain doesn't meet that bar. Keeping the desktop
+# shell as a fully separate Cargo project means the core logic
+# (crates/ + cli/) stays buildable and testable everywhere, while this
+# shell only needs to build wherever you actually run the desktop app —
+# which should be your real WSL install with a current rustup toolchain.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Path dependencies into the main workspace's crates — this shell is a
+# thin adapter over restora-api/-application/-domain, not a
+# reimplementation of anything.
+restora-api = { path = "../../crates/restora-api" }
+restora-application = { path = "../../crates/restora-application" }
+restora-domain = { path = "../../crates/restora-domain" }
+
+[lib]
+name = "restora_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]

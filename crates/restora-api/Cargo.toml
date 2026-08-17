@@ -9,3 +9,7 @@ license.workspace = true
 restora-application.workspace = true
 restora-domain.workspace = true
 restora-infra.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.8.1"

@@ -8,9 +8,11 @@
 //! arrive while the scan runs on its own thread.
 
 use restora_domain::RecoverableFile;
+use serde::Serialize;
 use std::sync::mpsc::Sender;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
 pub enum ScanEvent {
     PhaseStarted { phase: String },
     Progress { phase: String, scanned_bytes: u64, total_bytes: u64 },
