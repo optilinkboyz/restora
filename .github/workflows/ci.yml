@@ -35,8 +35,17 @@ jobs:
       - name: Build (main workspace)
         run: cargo build --workspace --verbose
 
-      - name: Test (main workspace)
-        run: cargo test --workspace --verbose
+      - name: Test (main workspace, no root required)
+        run: cargo test --workspace --verbose -- --skip reads_from_a_real_loopback_block_device
+
+      # This one test genuinely needs root — it attaches a real Linux
+      # loop device via losetup, which requires CAP_SYS_ADMIN. GitHub's
+      # runners execute as a non-root `runner` user by default (unlike
+      # the sandbox this project was largely built in, which ran fully
+      # as root and never surfaced this gap), but do have passwordless
+      # sudo available, which is exactly what this step uses.
+      - name: Test (raw disk access via loop device, requires sudo)
+        run: sudo $(command -v cargo) test -p restora-infra --lib raw_disk_source --verbose
 
   # Cross-platform compile check + a scoped slice of real tests.
   #

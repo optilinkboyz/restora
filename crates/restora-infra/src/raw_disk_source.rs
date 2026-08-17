@@ -149,7 +149,7 @@ fn query_device_size(file: &File) -> std::result::Result<u64, RawDiskError> {
             0,
             Some(&mut info as *mut _ as *mut _),
             std::mem::size_of::<GetLengthInformation>() as u32,
-            Some(&mut bytes_returned),
+            Some(&mut bytes_returned as *mut u32),
             None,
         )
         .is_ok()

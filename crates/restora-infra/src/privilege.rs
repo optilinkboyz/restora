@@ -66,7 +66,7 @@ pub fn check_privilege() -> PrivilegeStatus {
     // "not elevated" rather than assume success.
     let is_elevated = unsafe {
         let mut token = HANDLE::default();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token as *mut HANDLE).is_err() {
             return PrivilegeStatus {
                 is_elevated: false,
                 hint: Some(windows_hint()),
@@ -80,7 +80,7 @@ pub fn check_privilege() -> PrivilegeStatus {
             TokenElevation,
             Some(&mut elevation as *mut _ as *mut _),
             std::mem::size_of::<TOKEN_ELEVATION>() as u32,
-            &mut returned_len,
+            &mut returned_len as *mut u32,
         )
         .is_ok();
 
