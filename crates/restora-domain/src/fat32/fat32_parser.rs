@@ -92,9 +92,15 @@ impl Fat32Parser {
             if raw.is_deleted {
                 out.push(DeletedEntry {
                     name: format!("{prefix}{}", format_name(&raw)),
-                    first_cluster: raw.first_cluster,
-                    file_size: raw.file_size,
+                    first_cluster: raw.first_cluster as u64,
+                    file_size: raw.file_size as u64,
                     metadata_intact: raw.first_cluster != 0,
+                    // FAT32's parser doesn't cross-check the FAT's own
+                    // free/used state for these clusters (unlike NTFS's
+                    // $Bitmap check) — this is a coarser estimate based
+                    // only on whether the directory entry itself parsed
+                    // sensibly.
+                    confidence: if raw.first_cluster != 0 { 60 } else { 10 },
                 });
                 // Deliberately not recursing into deleted subdirectories —
                 // see module docs above for why.
@@ -127,12 +133,12 @@ impl FilesystemParser for Fat32Parser {
         if entry.file_size == 0 {
             return vec![];
         }
-        let cluster_size = self.boot_sector.cluster_size_bytes() as u32;
+        let cluster_size = self.boot_sector.cluster_size_bytes();
         let cluster_count = entry.file_size.div_ceil(cluster_size);
 
         vec![ClusterRange {
-            start_cluster: entry.first_cluster,
-            cluster_count,
+            start_cluster: entry.first_cluster as u32,
+            cluster_count: cluster_count as u32,
         }]
     }
 

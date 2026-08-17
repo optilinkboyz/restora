@@ -1,9 +1,13 @@
 //! restora-cli
 //!
-//! Phase 2 milestone: real subcommands backed by the FAT32 parser.
+//! Phase 4 milestone: filesystem auto-detection. `scan`/`recover` now work
+//! on either FAT32 or NTFS images — this is the FilesystemParser trait
+//! design paying off directly: the CLI code doesn't need to know or care
+//! which parser it ends up using.
 //!
-//!   restora-cli scan <image>                    — list deleted files found
-//!   restora-cli recover <image> <name> <outdir>  — recover one file's bytes
+//!   restora-cli scan <image>                       — list deleted files
+//!   restora-cli recover <image> <name> <outdir>     — recover one file
+//!   restora-cli carve <image> <outdir>              — signature-based carving
 //!
 //! From Phase 7 onward the Tauri UI replaces this as the primary interface,
 //! but this stays useful as a scriptable/debuggable entry point into the
@@ -12,6 +16,7 @@
 use anyhow::{bail, Context, Result};
 use restora_domain::carving::{Carver, SignatureCarver};
 use restora_domain::fat32::Fat32Parser;
+use restora_domain::ntfs::NtfsParser;
 use restora_domain::FilesystemParser;
 use restora_infra::{ByteSource, ImageFileSource};
 use std::path::PathBuf;
@@ -26,42 +31,59 @@ fn main() -> Result<()> {
         Some("carve") => cmd_carve(&args[2..]),
         _ => {
             eprintln!("usage:");
-            eprintln!("  restora-cli scan <image>                       (FAT32 metadata scan)");
-            eprintln!("  restora-cli recover <image> <name> <outdir>    (FAT32 metadata recovery)");
+            eprintln!("  restora-cli scan <image>                       (auto-detects FAT32/NTFS)");
+            eprintln!("  restora-cli recover <image> <name> <outdir>    (auto-detects FAT32/NTFS)");
             eprintln!("  restora-cli carve <image> <outdir>             (signature-based carving)");
             std::process::exit(1);
         }
     }
 }
 
-fn open_and_parse(image_path: &str) -> Result<(ImageFileSource, Fat32Parser)> {
+/// Tries each known metadata-based parser in turn. This is the concrete
+/// payoff of the FilesystemParser trait: every parser implements the same
+/// three methods, so once we know which one applies, the rest of the CLI
+/// code is completely filesystem-agnostic.
+fn detect_and_open(image_path: &str) -> Result<(ImageFileSource, Box<dyn FilesystemParser>, &'static str)> {
     let source = ImageFileSource::open(image_path)
         .with_context(|| format!("failed to open image: {image_path}"))?;
-    let parser = Fat32Parser::new(&source)
-        .context("failed to parse boot sector — is this a FAT32 image?")?;
-    Ok((source, parser))
+
+    if Fat32Parser::detect(&source) {
+        let parser = Fat32Parser::new(&source).context("detected FAT32 but failed to parse it")?;
+        return Ok((source, Box::new(parser), "FAT32"));
+    }
+    if NtfsParser::detect(&source) {
+        let parser = NtfsParser::new(&source).context("detected NTFS but failed to parse it")?;
+        return Ok((source, Box::new(parser), "NTFS"));
+    }
+
+    bail!(
+        "no recognized filesystem found in {image_path} (tried FAT32, NTFS) — \
+         if this image genuinely has no filesystem, try `carve` instead"
+    )
 }
 
 fn cmd_scan(args: &[String]) -> Result<()> {
     let image_path = args.first().context("usage: scan <image>")?;
-    let (source, parser) = open_and_parse(image_path)?;
+    let (source, parser, fs_name) = detect_and_open(image_path)?;
 
     let deleted = parser
         .enumerate_deleted(&source)
         .context("enumerate_deleted failed")?;
 
+    println!("Detected filesystem: {fs_name}\n");
+
     if deleted.is_empty() {
-        println!("No deleted files found in root directory.");
+        println!("No deleted files found.");
         return Ok(());
     }
 
-    println!("{:<20} {:>10}  {:<12}  {}", "NAME", "SIZE", "1ST CLUSTER", "METADATA");
+    println!("{:<24} {:>10}  {:>6}  {}", "NAME", "SIZE", "CONF", "METADATA");
     for entry in &deleted {
         println!(
-            "{:<20} {:>10}  {:<12}  {}",
+            "{:<24} {:>10}  {:>5}%  {}",
             entry.name,
             entry.file_size,
-            entry.first_cluster,
+            entry.confidence,
             if entry.metadata_intact { "intact" } else { "damaged" }
         );
     }
@@ -74,7 +96,9 @@ fn cmd_recover(args: &[String]) -> Result<()> {
     let name = args.get(1).context("usage: recover <image> <name> <outdir>")?;
     let outdir = args.get(2).context("usage: recover <image> <name> <outdir>")?;
 
-    let (source, parser) = open_and_parse(image_path)?;
+    let (source, parser, fs_name) = detect_and_open(image_path)?;
+    println!("Detected filesystem: {fs_name}");
+
     let deleted = parser
         .enumerate_deleted(&source)
         .context("enumerate_deleted failed")?;
@@ -88,6 +112,10 @@ fn cmd_recover(args: &[String]) -> Result<()> {
         .recover_bytes(&source, entry)
         .context("recover_bytes failed")?;
 
+    // NTFS names can contain path-hostile characters we don't sanitize
+    // yet, and FAT names sometimes carry the unrecoverable-first-char '_'
+    // placeholder — file_name() below just uses the reconstructed name
+    // as-is, which is fine for this CLI-scale tool.
     let out_path = PathBuf::from(outdir).join(&entry.name);
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -96,8 +124,9 @@ fn cmd_recover(args: &[String]) -> Result<()> {
         .with_context(|| format!("failed to write recovered file to {}", out_path.display()))?;
 
     println!(
-        "Recovered {} bytes -> {}",
+        "Recovered {} bytes (confidence {}%) -> {}",
         recovered.len(),
+        entry.confidence,
         out_path.display()
     );
 

@@ -6,12 +6,14 @@
 //! logic in the project unit-testable without a real disk anywhere in sight.
 //!
 //! Phase 2: FAT32Parser — metadata-based recovery (root dir + subdirs).
-//! Phase 3 (this): SignatureCarver — metadata-free recovery.
-//! Coming later: NtfsParser (Phase 4).
+//! Phase 3: SignatureCarver — metadata-free recovery.
+//! Phase 4 (this): NtfsParser — MFT-based recovery with $Bitmap confidence
+//! scoring.
 
 pub mod carving;
 pub mod error;
 pub mod fat32;
+pub mod ntfs;
 pub mod parser;
 
 pub use carving::{CarvedFile, Carver, SignatureCarver};

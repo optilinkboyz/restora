@@ -21,15 +21,24 @@ pub struct ClusterRange {
 /// found by carving, which has no metadata at all).
 #[derive(Debug, Clone)]
 pub struct DeletedEntry {
-    /// Reconstructed name, e.g. "CANARY.TXT". FAT8.3 names only for now.
+    /// Reconstructed name, e.g. "CANARY.TXT" (FAT) or "canary.txt" (NTFS).
     pub name: String,
-    pub first_cluster: u32,
-    pub file_size: u32,
+    /// Starting cluster (FAT) or LCN (NTFS) of the file's data. Widened to
+    /// u64 to accommodate NTFS's 64-bit cluster addressing on very large
+    /// volumes — FAT32 values always fit comfortably within this.
+    pub first_cluster: u64,
+    pub file_size: u64,
     /// True if the directory entry's data-run pointers are still intact
     /// and not (yet) reused by another file. Doesn't guarantee the actual
     /// cluster bytes weren't overwritten — that's a separate free-space
     /// bitmap check, added when we implement confidence scoring.
     pub metadata_intact: bool,
+    /// 0-100. How likely a byte-exact recovery is. FAT32's parser can only
+    /// estimate this loosely (it doesn't cross-check the FAT's own
+    /// free/used state yet). NTFS's parser computes this properly by
+    /// checking whether the file's clusters are still marked free in
+    /// `$Bitmap` — the same signal a real forensic tool relies on.
+    pub confidence: u8,
 }
 
 /// Implemented once per filesystem type. `restora-application` never
