@@ -135,7 +135,7 @@ fn query_device_size(file: &File) -> std::result::Result<u64, RawDiskError> {
         length: i64,
     }
 
-    let handle = HANDLE(file.as_raw_handle() as isize);
+    let handle = HANDLE(file.as_raw_handle() as *mut std::ffi::c_void);
     let mut info = GetLengthInformation { length: 0 };
     let mut bytes_returned: u32 = 0;
 
