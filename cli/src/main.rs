@@ -10,9 +10,10 @@
 //! same restora-domain logic.
 
 use anyhow::{bail, Context, Result};
+use restora_domain::carving::{Carver, SignatureCarver};
 use restora_domain::fat32::Fat32Parser;
 use restora_domain::FilesystemParser;
-use restora_infra::ImageFileSource;
+use restora_infra::{ByteSource, ImageFileSource};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
@@ -22,10 +23,12 @@ fn main() -> Result<()> {
     match args.get(1).map(String::as_str) {
         Some("scan") => cmd_scan(&args[2..]),
         Some("recover") => cmd_recover(&args[2..]),
+        Some("carve") => cmd_carve(&args[2..]),
         _ => {
             eprintln!("usage:");
-            eprintln!("  restora-cli scan <image>");
-            eprintln!("  restora-cli recover <image> <name> <outdir>");
+            eprintln!("  restora-cli scan <image>                       (FAT32 metadata scan)");
+            eprintln!("  restora-cli recover <image> <name> <outdir>    (FAT32 metadata recovery)");
+            eprintln!("  restora-cli carve <image> <outdir>             (signature-based carving)");
             std::process::exit(1);
         }
     }
@@ -101,5 +104,46 @@ fn cmd_recover(args: &[String]) -> Result<()> {
     if recovered.is_empty() {
         bail!("recovered 0 bytes — this file's data may already be overwritten");
     }
+    Ok(())
+}
+
+fn cmd_carve(args: &[String]) -> Result<()> {
+    let image_path = args.first().context("usage: carve <image> <outdir>")?;
+    let outdir = args.get(1).context("usage: carve <image> <outdir>")?;
+
+    let source = ImageFileSource::open(image_path)
+        .with_context(|| format!("failed to open image: {image_path}"))?;
+
+    let carver = SignatureCarver::new();
+    let found = carver
+        .scan(&source, 0..source.size())
+        .context("carve scan failed")?;
+
+    if found.is_empty() {
+        println!("No known file signatures found.");
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(outdir)?;
+
+    println!(
+        "{:<6} {:<6} {:>14} {:>10} {:>6}  {}",
+        "INDEX", "TYPE", "OFFSET", "SIZE", "CONF", "OUTPUT"
+    );
+    for (i, file) in found.iter().enumerate() {
+        let bytes = source.read_vec(file.start_offset, file.size() as usize)?;
+        let out_path = PathBuf::from(outdir).join(format!("carved_{:04}.{}", i, file.extension));
+        std::fs::write(&out_path, &bytes)?;
+        println!(
+            "{:<6} {:<6} {:>14} {:>10} {:>5}%  {}",
+            i,
+            file.format_name,
+            file.start_offset,
+            file.size(),
+            file.confidence,
+            out_path.display()
+        );
+    }
+    println!("\n{} file(s) carved.", found.len());
     Ok(())
 }
