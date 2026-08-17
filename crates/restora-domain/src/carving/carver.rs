@@ -122,6 +122,29 @@ impl SignatureCarver {
 
 impl Carver for SignatureCarver {
     fn scan(&self, source: &dyn ByteSource, range: Range<u64>) -> Result<Vec<CarvedFile>> {
+        // The trait's plain scan() is just scan_with_progress() with a
+        // callback that reports nothing and never asks to stop early —
+        // one real implementation, two ways to call it.
+        self.scan_with_progress(source, range, |_scanned, _total| true)
+    }
+}
+
+impl SignatureCarver {
+    /// Same scanning logic as `scan()`, but calls `on_progress(scanned,
+    /// total)` after every chunk — the natural place to report progress
+    /// during a long scan of a real multi-gigabyte drive, and the natural
+    /// place to check a cancellation flag. Returning `false` from the
+    /// callback stops the scan early (whatever's been found so far is
+    /// still returned, not discarded).
+    pub fn scan_with_progress<F>(
+        &self,
+        source: &dyn ByteSource,
+        range: Range<u64>,
+        mut on_progress: F,
+    ) -> Result<Vec<CarvedFile>>
+    where
+        F: FnMut(u64, u64) -> bool,
+    {
         let mut results = Vec::new();
         let mut seen_starts: HashSet<u64> = HashSet::new();
 
@@ -132,6 +155,7 @@ impl Carver for SignatureCarver {
             self.chunk_size
         };
 
+        let total = range.end - range.start;
         let mut pos = range.start;
         loop {
             if pos >= range.end {
@@ -152,6 +176,11 @@ impl Carver for SignatureCarver {
                     }
                     results.push(self.resolve_extent(source, sig, abs_offset)?);
                 }
+            }
+
+            let scanned_so_far = (pos + read_len as u64).saturating_sub(range.start);
+            if !on_progress(scanned_so_far, total) {
+                break; // caller requested cancellation
             }
 
             let next = pos + step as u64;

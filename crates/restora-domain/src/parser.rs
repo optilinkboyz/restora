@@ -6,6 +6,8 @@
 use crate::error::Result;
 use restora_infra::ByteSource;
 
+use serde::{Deserialize, Serialize};
+
 /// A contiguous run of clusters. Deleted files that are still contiguous
 /// on disk (the common case for small/unfragmented files) resolve to a
 /// single range; fragmented files would need several — Phase 2 assumes
@@ -19,7 +21,7 @@ pub struct ClusterRange {
 
 /// A deleted file found by walking filesystem metadata (as opposed to one
 /// found by carving, which has no metadata at all).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeletedEntry {
     /// Reconstructed name, e.g. "CANARY.TXT" (FAT) or "canary.txt" (NTFS).
     pub name: String,

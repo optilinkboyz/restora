@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 restora-infra.workspace = true
 restora-domain.workspace = true
+restora-application.workspace = true
 restora-api.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
