@@ -20,6 +20,18 @@
 //! at all — not a missing feature so much as a hard boundary of what this
 //! test environment can meaningfully exercise. Left as a clearly-marked
 //! follow-up for when real device access is available.
+//!
+//! **Phase 8 update**: `restora-infra::RawDiskSource` now exists and can
+//! genuinely read a real physical device (see its own docs for the
+//! `BLKGETSIZE64`/`IOCTL_DISK_GET_LENGTH_INFO` size-query detail) — but
+//! `wipe_free_space` below still only writes through
+//! `WritableImageFileSource`, which only opens plain files. Wiping a
+//! real device would need a `WritableRawDiskSource` counterpart (same
+//! relationship as `RawDiskSource` has to `ImageFileSource`) that doesn't
+//! exist yet. Named explicitly rather than silently assumed to work —
+//! pointing this function at a `/dev/sdX` path today would fail at the
+//! `WritableImageFileSource::open_read_write` call with a plain "no such
+//! file" style error, not a deliberate refusal.
 
 use crate::error::{ApplicationError, Result};
 use restora_domain::carving::{Carver, SignatureCarver};

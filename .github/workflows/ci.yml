@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # The full, honest test suite: every fixture generated the same way a
+  # developer would in their own WSL/Linux environment, every test in
+  # every crate run for real. This is the job that actually proves
+  # correctness — the two below exist to catch platform-specific compile
+  # breakage this sandbox's toolchain ceiling could never have caught,
+  # not to replace this one.
+  full-test-linux:
+    name: Full test suite (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install fixture-generation tools
+        run: sudo apt-get update && sudo apt-get install -y dosfstools mtools
+
+      - name: Generate test fixtures
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/make_fat32_fixture.sh
+          ./scripts/make_fat32_nested_fixture.sh
+          ./scripts/make_carve_fixture.sh
+          python3 scripts/make_ntfs_fixture.py
+
+      - name: Build (main workspace)
+        run: cargo build --workspace --verbose
+
+      - name: Test (main workspace)
+        run: cargo test --workspace --verbose
+
+  # Cross-platform compile check + a scoped slice of real tests.
+  #
+  # Honest scope note: this project's fixture-generation tooling
+  # (mtools, dosfstools) is Linux-specific, and Phase 8's RawDiskSource
+  # test specifically exercises `losetup`, a Linux-only mechanism with no
+  # equivalent invoked the same way on macOS/Windows. Rather than fake
+  # full parity, this job does two genuinely useful things instead:
+  #   1. Confirms the ENTIRE workspace actually compiles on Windows and
+  #      macOS — including the #[cfg(windows)] ioctl code in
+  #      restora-infra (privilege.rs, raw_disk_source.rs) that has never
+  #      been compiled anywhere before this CI config existed, having
+  #      been written and reasoned about but not executable-verified in
+  #      the sandbox this project was largely built in.
+  #   2. Generates the one fixture that IS fully portable (the NTFS
+  #      fixture is pure Python, stdlib only) and runs the NTFS-specific
+  #      test module against it for real, on real Windows/macOS runners.
+  cross-platform-build:
+    name: Cross-platform build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build (main workspace)
+        run: cargo build --workspace --verbose
+
+      - name: Generate the portable NTFS fixture
+        shell: bash
+        run: python3 scripts/make_ntfs_fixture.py
+
+      - name: Run NTFS-specific tests
+        shell: bash
+        run: cargo test -p restora-domain --lib ntfs --verbose
+
+  # The Tauri desktop shell is intentionally NOT part of the main
+  # workspace (see desktop/src-tauri/Cargo.toml's own comments on why —
+  # in short, its dependency tree needs a newer Rust edition than the
+  # sandbox this project was mostly built in could provide). This job is
+  # the real substitute for that missing local verification: it actually
+  # builds the desktop shell, with the correct per-OS system dependencies
+  # installed first, on real GitHub-hosted runners with a current
+  # toolchain.
+  desktop-build:
+    name: Desktop shell build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies (webkit2gtk, GTK, etc.)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - name: Build desktop shell
+        working-directory: desktop/src-tauri
+        run: cargo build --verbose

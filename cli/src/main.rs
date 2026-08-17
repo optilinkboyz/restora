@@ -18,11 +18,46 @@ use restora_application::{recover_files, wipe_free_space, ScanEvent, ScanMode, S
 use restora_domain::carving::{Carver, SignatureCarver};
 use restora_domain::FilesystemParser;
 use restora_domain::WipePattern;
-use restora_infra::{ByteSource, ImageFileSource};
+use restora_infra::{ByteSource, ImageFileSource, RawDiskSource};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+/// Opens either a real physical device or a plain `.img` file, chosen by
+/// how the path looks — `/dev/sdX` (Unix) or `\\.\PhysicalDriveN`
+/// (Windows) routes to `RawDiskSource` (Phase 8, needs elevated
+/// privileges — see `restora_infra::check_privilege`); anything else
+/// opens as an `ImageFileSource`, same as every phase before this one.
+/// Both implement `ByteSource`, so everything downstream (parsers,
+/// carver) neither knows nor cares which one it's holding.
+fn open_source(path: &str) -> Result<Box<dyn ByteSource>> {
+    if looks_like_raw_device(path) {
+        let source = RawDiskSource::open(path)
+            .with_context(|| format!("failed to open raw device: {path}"))?;
+        Ok(Box::new(source))
+    } else {
+        let source = ImageFileSource::open(path)
+            .with_context(|| format!("failed to open image: {path}"))?;
+        Ok(Box::new(source))
+    }
+}
+
+fn looks_like_raw_device(path: &str) -> bool {
+    #[cfg(unix)]
+    {
+        path.starts_with("/dev/")
+    }
+    #[cfg(windows)]
+    {
+        path.starts_with(r"\\.\")
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        false
+    }
+}
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -45,6 +80,17 @@ fn main() -> Result<()> {
             eprintln!("  restora-cli session-list <db>                       (list persisted sessions)");
             eprintln!("  restora-cli session-recover <db> <id> <name> <outdir>  (recover from a persisted session)");
             eprintln!("  restora-cli wipe-free-space <image> <zero|random|dod3> [--verify] [--assume-ssd] [--yes]");
+            eprintln!();
+            eprintln!(
+                "note: scan/recover/carve accept a raw device path (/dev/sdX on Unix, \\\\.\\PhysicalDriveN"
+            );
+            eprintln!(
+                "  on Windows) and will need elevated privileges (sudo / Run as Administrator)."
+            );
+            eprintln!(
+                "  wipe-free-space currently only supports .img files, not raw devices — see"
+            );
+            eprintln!("  restora-application::wipe_job's docs for why.");
             std::process::exit(1);
         }
     }
@@ -54,10 +100,9 @@ fn main() -> Result<()> {
 /// `restora_domain::detect_parser` — the shared dispatch logic added in
 /// Phase 5 so the CLI and the application layer's ScanSession don't each
 /// maintain their own copy.
-fn detect_and_open(image_path: &str) -> Result<(ImageFileSource, Box<dyn FilesystemParser>, &'static str)> {
-    let source = ImageFileSource::open(image_path)
-        .with_context(|| format!("failed to open image: {image_path}"))?;
-    let (parser, fs_name) = restora_domain::detect_parser(&source).with_context(|| {
+fn detect_and_open(image_path: &str) -> Result<(Box<dyn ByteSource>, Box<dyn FilesystemParser>, &'static str)> {
+    let source = open_source(image_path)?;
+    let (parser, fs_name) = restora_domain::detect_parser(source.as_ref()).with_context(|| {
         format!(
             "no recognized filesystem found in {image_path} (tried FAT32, NTFS) — \
              if this image genuinely has no filesystem, try `carve` instead"
@@ -71,7 +116,7 @@ fn cmd_scan(args: &[String]) -> Result<()> {
     let (source, parser, fs_name) = detect_and_open(image_path)?;
 
     let deleted = parser
-        .enumerate_deleted(&source)
+        .enumerate_deleted(source.as_ref())
         .context("enumerate_deleted failed")?;
 
     println!("Detected filesystem: {fs_name}\n");
@@ -104,7 +149,7 @@ fn cmd_recover(args: &[String]) -> Result<()> {
     println!("Detected filesystem: {fs_name}");
 
     let deleted = parser
-        .enumerate_deleted(&source)
+        .enumerate_deleted(source.as_ref())
         .context("enumerate_deleted failed")?;
 
     let entry = deleted
@@ -113,7 +158,7 @@ fn cmd_recover(args: &[String]) -> Result<()> {
         .with_context(|| format!("no deleted entry named '{name}' found — run `scan` first"))?;
 
     let recovered = parser
-        .recover_bytes(&source, entry)
+        .recover_bytes(source.as_ref(), entry)
         .context("recover_bytes failed")?;
 
     // NTFS names can contain path-hostile characters we don't sanitize
@@ -144,12 +189,11 @@ fn cmd_carve(args: &[String]) -> Result<()> {
     let image_path = args.first().context("usage: carve <image> <outdir>")?;
     let outdir = args.get(1).context("usage: carve <image> <outdir>")?;
 
-    let source = ImageFileSource::open(image_path)
-        .with_context(|| format!("failed to open image: {image_path}"))?;
+    let source = open_source(image_path)?;
 
     let carver = SignatureCarver::new();
     let found = carver
-        .scan(&source, 0..source.size())
+        .scan(source.as_ref(), 0..source.size())
         .context("carve scan failed")?;
 
     if found.is_empty() {

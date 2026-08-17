@@ -19,11 +19,11 @@ windows = { version = "0.58", features = [
 ] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", features = ["fs", "ioctl"] }
+nix = { version = "0.29", features = ["fs", "ioctl", "user"] }
 
 [dev-dependencies]
 # Pinned: newer tempfile pulls in getrandom versions requiring edition2024,
 # which the apt-packaged cargo (1.75) in this sandbox can't parse. If your
 # real WSL install uses rustup (recommended, see notes), you can drop this
 # pin and just use `tempfile = "3"`.
-tempfile = "3"
+tempfile = "=3.8.1"
