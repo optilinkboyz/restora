@@ -45,7 +45,7 @@ jobs:
       # as root and never surfaced this gap), but do have passwordless
       # sudo available, which is exactly what this step uses.
       - name: Test (raw disk access via loop device, requires sudo)
-        run: sudo $(command -v cargo) test -p restora-infra --lib raw_disk_source --verbose
+        run: sudo -E $(command -v cargo) test -p restora-infra --lib raw_disk_source --verbose
 
   # Cross-platform compile check + a scoped slice of real tests.
   #
