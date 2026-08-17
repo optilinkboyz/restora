@@ -5,5 +5,12 @@
 //! `&dyn ByteSource` from restora-infra. This is what makes the hardest
 //! logic in the project unit-testable without a real disk anywhere in sight.
 //!
-//! Populated starting Phase 2 (FAT32Parser), Phase 3 (SignatureCarver),
-//! Phase 4 (NtfsParser).
+//! Phase 2 (this): FAT32Parser — root-directory deleted-entry recovery.
+//! Coming later: SignatureCarver (Phase 3), NtfsParser (Phase 4).
+
+pub mod error;
+pub mod fat32;
+pub mod parser;
+
+pub use error::{DomainError, Result};
+pub use parser::{ClusterRange, DeletedEntry, FilesystemParser};

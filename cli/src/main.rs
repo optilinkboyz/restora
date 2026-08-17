@@ -1,39 +1,105 @@
 //! restora-cli
 //!
-//! Phase 0/1 milestone: prove the workspace wires together by opening an
-//! image file through ByteSource and dumping its boot sector in hex.
-//! From Phase 2 onward this gains real subcommands (`scan`, `recover`, `wipe`)
-//! before the Tauri UI (Phase 7) replaces it as the primary interface.
+//! Phase 2 milestone: real subcommands backed by the FAT32 parser.
+//!
+//!   restora-cli scan <image>                    — list deleted files found
+//!   restora-cli recover <image> <name> <outdir>  — recover one file's bytes
+//!
+//! From Phase 7 onward the Tauri UI replaces this as the primary interface,
+//! but this stays useful as a scriptable/debuggable entry point into the
+//! same restora-domain logic.
 
-use anyhow::{Context, Result};
-use restora_infra::{ByteSource, ImageFileSource};
+use anyhow::{bail, Context, Result};
+use restora_domain::fat32::Fat32Parser;
+use restora_domain::FilesystemParser;
+use restora_infra::ImageFileSource;
+use std::path::PathBuf;
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let path = std::env::args()
-        .nth(1)
-        .context("usage: restora-cli <path-to-disk-image>")?;
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("scan") => cmd_scan(&args[2..]),
+        Some("recover") => cmd_recover(&args[2..]),
+        _ => {
+            eprintln!("usage:");
+            eprintln!("  restora-cli scan <image>");
+            eprintln!("  restora-cli recover <image> <name> <outdir>");
+            std::process::exit(1);
+        }
+    }
+}
 
-    let source = ImageFileSource::open(&path)
-        .with_context(|| format!("failed to open image: {path}"))?;
+fn open_and_parse(image_path: &str) -> Result<(ImageFileSource, Fat32Parser)> {
+    let source = ImageFileSource::open(image_path)
+        .with_context(|| format!("failed to open image: {image_path}"))?;
+    let parser = Fat32Parser::new(&source)
+        .context("failed to parse boot sector — is this a FAT32 image?")?;
+    Ok((source, parser))
+}
 
-    println!("Opened: {}", source.label());
-    println!("Size:   {} bytes", source.size());
+fn cmd_scan(args: &[String]) -> Result<()> {
+    let image_path = args.first().context("usage: scan <image>")?;
+    let (source, parser) = open_and_parse(image_path)?;
 
-    let boot_sector = source
-        .read_vec(0, 512.min(source.size() as usize))
-        .context("failed to read boot sector")?;
+    let deleted = parser
+        .enumerate_deleted(&source)
+        .context("enumerate_deleted failed")?;
 
-    println!("\nFirst 512 bytes (hex):");
-    for (i, chunk) in boot_sector.chunks(16).enumerate() {
-        let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
-        let ascii: String = chunk
-            .iter()
-            .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
-            .collect();
-        println!("{:04x}  {:<47}  {}", i * 16, hex.join(" "), ascii);
+    if deleted.is_empty() {
+        println!("No deleted files found in root directory.");
+        return Ok(());
     }
 
+    println!("{:<20} {:>10}  {:<12}  {}", "NAME", "SIZE", "1ST CLUSTER", "METADATA");
+    for entry in &deleted {
+        println!(
+            "{:<20} {:>10}  {:<12}  {}",
+            entry.name,
+            entry.file_size,
+            entry.first_cluster,
+            if entry.metadata_intact { "intact" } else { "damaged" }
+        );
+    }
+    println!("\n{} deleted file(s) found.", deleted.len());
+    Ok(())
+}
+
+fn cmd_recover(args: &[String]) -> Result<()> {
+    let image_path = args.first().context("usage: recover <image> <name> <outdir>")?;
+    let name = args.get(1).context("usage: recover <image> <name> <outdir>")?;
+    let outdir = args.get(2).context("usage: recover <image> <name> <outdir>")?;
+
+    let (source, parser) = open_and_parse(image_path)?;
+    let deleted = parser
+        .enumerate_deleted(&source)
+        .context("enumerate_deleted failed")?;
+
+    let entry = deleted
+        .iter()
+        .find(|e| e.name.eq_ignore_ascii_case(name))
+        .with_context(|| format!("no deleted entry named '{name}' found — run `scan` first"))?;
+
+    let recovered = parser
+        .recover_bytes(&source, entry)
+        .context("recover_bytes failed")?;
+
+    let out_path = PathBuf::from(outdir).join(&entry.name);
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&out_path, &recovered)
+        .with_context(|| format!("failed to write recovered file to {}", out_path.display()))?;
+
+    println!(
+        "Recovered {} bytes -> {}",
+        recovered.len(),
+        out_path.display()
+    );
+
+    if recovered.is_empty() {
+        bail!("recovered 0 bytes — this file's data may already be overwritten");
+    }
     Ok(())
 }
