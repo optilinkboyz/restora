@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Capability for Restora's main window — core command invocation and the event system (needed for live scan progress).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default"
+  ]
+}

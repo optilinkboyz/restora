@@ -9,9 +9,9 @@
 //! already-tested function and translate the result" belongs in
 //! restora-api instead, where it can actually be unit tested.
 
-use restora_application::{ScanEvent, ScanMode, ScanSession, SessionSummary};
+use restora_application::{ScanMode, ScanSession, SessionSummary};
 use restora_domain::RecoverableFile;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 

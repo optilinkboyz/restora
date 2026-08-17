@@ -19,7 +19,7 @@ use restora_domain::{detect_parser, RecoverableFile, RecoveryLocator};
 use restora_infra::{ByteSource, ImageFileSource};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RecoveryResult {
     pub name: String,
     pub success: bool,

@@ -100,7 +100,7 @@ impl SessionStore {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SessionSummary {
     pub id: String,
     pub updated_at: String,

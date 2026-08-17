@@ -49,7 +49,15 @@
   .btn.primary{ background:var(--cyan); border-color:var(--cyan); color:#06222c; font-weight:600;}
   .btn.danger{ background:var(--red); border-color:var(--red); color:#2b0a08; font-weight:600;}
   .btn.ghost{ background:transparent;}
-  input[type=text], select{ background:var(--raised); border:1px solid var(--border); color:var(--text); padding:7px 10px; border-radius:6px; font-family:inherit; font-size:12.5px;}
+
+  input[type=text]{ background:var(--raised); border:1px solid var(--border); color:var(--text); padding:7px 10px; border-radius:6px; font-family:inherit; font-size:12.5px;}
+select{
+  background:var(--raised) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><polygon points='0,0 10,0 5,6' fill='%238A93A0'/></svg>") no-repeat right 10px center;
+  border:1px solid var(--border); color:var(--text); padding:7px 26px 7px 10px; border-radius:6px;
+  font-family:inherit; font-size:12.5px;
+  -webkit-appearance:none; appearance:none;
+}
+select option{ background:var(--raised); color:var(--text); }
   label.inline{ display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px;}
 
   .progress-card{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:18px;}

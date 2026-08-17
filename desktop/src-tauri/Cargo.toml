@@ -3,6 +3,8 @@ name = "restora-desktop"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+
 # This crate is intentionally OUTSIDE the main workspace (restora/Cargo.toml).
 # The Tauri 2.x dependency tree requires a Rust 2024-edition-aware
 # toolchain (rustc 1.85+) — if this were a workspace member, every

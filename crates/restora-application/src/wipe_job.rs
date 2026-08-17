@@ -32,7 +32,7 @@ use restora_infra::{WritableByteSource, WritableImageFileSource};
 /// buffers for a big wipe range.
 const WIPE_CHUNK_SIZE: usize = 1_000_000;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct VerificationResult {
     /// How many carve-able signatures the Phase 3 carver still found in
     /// the wiped ranges after wiping. Zero is the goal — anything found
@@ -42,7 +42,7 @@ pub struct VerificationResult {
     pub carved_files_found_after_wipe: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WipeResult {
     pub pattern_name: &'static str,
     pub ranges_wiped: usize,
