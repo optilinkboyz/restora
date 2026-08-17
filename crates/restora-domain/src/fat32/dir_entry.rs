@@ -16,6 +16,9 @@ pub const DELETED_MARKER: u8 = 0xE5;
 const END_OF_DIRECTORY: u8 = 0x00;
 const ATTR_LONG_NAME: u8 = 0x0F;
 const ATTR_VOLUME_ID: u8 = 0x08;
+/// Needed by the directory walker (fat32_parser.rs) to recognize
+/// subdirectory entries it should recurse into.
+pub const ATTR_DIRECTORY: u8 = 0x10;
 
 #[derive(Debug, Clone)]
 pub struct RawDirEntry {
