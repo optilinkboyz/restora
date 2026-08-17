@@ -1,0 +1,11 @@
+[package]
+name = "restora-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+restora-application.workspace = true
+restora-domain.workspace = true
+restora-infra.workspace = true

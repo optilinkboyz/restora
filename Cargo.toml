@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/restora-infra",
+    "crates/restora-domain",
+    "crates/restora-application",
+    "crates/restora-api",
+    "cli",
+]
+
+# Shared metadata/lints for every crate in the workspace
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Andrew Nelson Enoh"]
+license = "MIT"
+
+[workspace.dependencies]
+# Internal crates reference each other via workspace = true
+restora-infra = { path = "crates/restora-infra" }
+restora-domain = { path = "crates/restora-domain" }
+restora-application = { path = "crates/restora-application" }
+restora-api = { path = "crates/restora-api" }
+
+# External deps pinned once here, inherited by member crates
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Dev builds: fast compile. Release: optimized for scanning throughput.
+[profile.dev]
+opt-level = 1        # raw byte-scanning is painfully slow at opt-level 0
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"       # a panic mid-scan should not silently unwind into corrupt state

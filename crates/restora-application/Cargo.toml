@@ -1,0 +1,13 @@
+[package]
+name = "restora-application"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+restora-infra.workspace = true
+restora-domain.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true

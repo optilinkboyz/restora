@@ -1,0 +1,4 @@
+/target
+Cargo.lock
+*.img
+!tests/fixtures/.gitkeep
