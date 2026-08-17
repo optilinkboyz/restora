@@ -243,6 +243,16 @@ def main():
     # --- Build record 6: $Bitmap, resident, matching our delete simulation ---
     bitmap_size_bytes = (TOTAL_CLUSTERS + 7) // 8
     bitmap_bytes = bytearray(bitmap_size_bytes)
+    # Mark the reserved region BEFORE $MFT (boot sector + padding, LCN
+    # 0..MFT_START_LCN) allocated too — real NTFS reserves this for
+    # $Boot and other early system structures. Skipping this marking was
+    # a real bug caught by wipe_job's own tests: without it, a free-space
+    # wipe would "correctly" (per a bitmap that was itself wrong) treat
+    # the boot sector as free space and overwrite it, destroying the
+    # volume. This is exactly the kind of mistake Phase 6's
+    # live_system_files_survive_a_free_space_wipe test exists to catch.
+    for lcn in range(0, MFT_START_LCN):
+        bitmap_bytes[lcn // 8] |= (1 << (lcn % 8))
     # Mark the MFT's own clusters allocated (they genuinely are).
     for lcn in range(MFT_START_LCN, MFT_START_LCN + MFT_CLUSTER_COUNT):
         bitmap_bytes[lcn // 8] |= (1 << (lcn % 8))

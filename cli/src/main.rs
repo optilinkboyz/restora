@@ -14,10 +14,12 @@
 //! same restora-domain logic.
 
 use anyhow::{bail, Context, Result};
-use restora_application::{recover_files, ScanEvent, ScanMode, ScanSession, SessionStore};
+use restora_application::{recover_files, wipe_free_space, ScanEvent, ScanMode, ScanSession, SessionStore};
 use restora_domain::carving::{Carver, SignatureCarver};
 use restora_domain::FilesystemParser;
+use restora_domain::WipePattern;
 use restora_infra::{ByteSource, ImageFileSource};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -33,6 +35,7 @@ fn main() -> Result<()> {
         Some("session-scan") => cmd_session_scan(&args[2..]),
         Some("session-list") => cmd_session_list(&args[2..]),
         Some("session-recover") => cmd_session_recover(&args[2..]),
+        Some("wipe-free-space") => cmd_wipe_free_space(&args[2..]),
         _ => {
             eprintln!("usage:");
             eprintln!("  restora-cli scan <image>                             (one-shot, auto-detects FAT32/NTFS)");
@@ -41,6 +44,7 @@ fn main() -> Result<()> {
             eprintln!("  restora-cli session-scan <image> <db> [quick|deep]   (persisted, resumable-session scan)");
             eprintln!("  restora-cli session-list <db>                       (list persisted sessions)");
             eprintln!("  restora-cli session-recover <db> <id> <name> <outdir>  (recover from a persisted session)");
+            eprintln!("  restora-cli wipe-free-space <image> <zero|random|dod3> [--verify] [--assume-ssd] [--yes]");
             std::process::exit(1);
         }
     }
@@ -288,6 +292,67 @@ fn cmd_session_recover(args: &[String]) -> Result<()> {
         );
     } else {
         bail!("recovery failed: {}", result.error.clone().unwrap_or_default());
+    }
+    Ok(())
+}
+
+fn cmd_wipe_free_space(args: &[String]) -> Result<()> {
+    let image_path = args.first().context(
+        "usage: wipe-free-space <image> <zero|random|dod3> [--verify] [--assume-ssd] [--yes]",
+    )?;
+    let pattern_name = args.get(1).context(
+        "usage: wipe-free-space <image> <zero|random|dod3> [--verify] [--assume-ssd] [--yes]",
+    )?;
+    let flags: Vec<&str> = args[2..].iter().map(String::as_str).collect();
+    let verify = flags.contains(&"--verify");
+    let assume_ssd = flags.contains(&"--assume-ssd");
+    let skip_prompt = flags.contains(&"--yes");
+
+    let pattern = match pattern_name.as_str() {
+        "zero" => WipePattern::ZERO,
+        "random" => WipePattern::RANDOM,
+        "dod3" => WipePattern::DOD_3PASS,
+        other => bail!("unknown pattern '{other}' — expected one of: zero, random, dod3"),
+    };
+
+    println!("About to wipe FREE SPACE (never allocated/live files) on:");
+    println!("  {image_path}");
+    println!("Pattern: {} ({} pass(es))", pattern.name, pattern.passes.len());
+    if assume_ssd {
+        println!("(--assume-ssd set — this will be REFUSED; overwrite is unreliable on flash media)");
+    }
+    println!();
+    println!(
+        "This is genuinely destructive to anything currently sitting in free space \
+         on this image — including any deleted files you might still want to recover."
+    );
+
+    // The "explicit, separately-confirmed" gate the architecture calls
+    // for. --yes exists for scripting/automated testing, same convention
+    // as `docker system prune -f` or `rm -f`.
+    if !skip_prompt {
+        print!("Type WIPE to continue: ");
+        std::io::stdout().flush().ok();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if input.trim() != "WIPE" {
+            println!("Aborted — no changes made.");
+            return Ok(());
+        }
+    }
+
+    let result = wipe_free_space(image_path, &pattern, assume_ssd, verify)?;
+
+    println!();
+    println!(
+        "Wiped {} free-space range(s), {} bytes, using {}.",
+        result.ranges_wiped, result.bytes_written, result.pattern_name
+    );
+    if let Some(v) = result.verification {
+        println!(
+            "Self-verification: carver found {} recoverable signature(s) remaining in wiped ranges.",
+            v.carved_files_found_after_wipe
+        );
     }
     Ok(())
 }

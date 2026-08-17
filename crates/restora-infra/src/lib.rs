@@ -7,12 +7,17 @@
 
 pub mod byte_source;
 pub mod image_file_source;
+pub mod writable_byte_source;
+pub mod writable_image_file;
 
 pub use byte_source::{ByteSource, ByteSourceError};
 pub use image_file_source::ImageFileSource;
+pub use writable_byte_source::WritableByteSource;
+pub use writable_image_file::WritableImageFileSource;
 
-// Phase 1 stops here. Coming in later phases from this same crate:
+// Coming in later phases from this same crate:
 //   - raw_disk_source.rs   (RawDiskSource: \\.\PhysicalDriveN / /dev/sdX)
 //   - sector_cache.rs      (LRU-cached wrapper around any ByteSource)
 //   - privilege_broker.rs  (elevation requests, capability checks)
-//   - trim_issuer.rs       (Phase 6: ATA TRIM / NVMe Deallocate)
+//   - trim_issuer.rs       (real block-device TRIM — see Phase 6's
+//     wipe_job.rs for why this is scoped out for now)

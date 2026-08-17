@@ -270,6 +270,38 @@ impl FilesystemParser for NtfsParser {
         out.truncate(entry.file_size as usize);
         Ok(out)
     }
+
+    fn free_space_ranges(&self, source: &dyn ByteSource) -> Result<Vec<(u64, u64)>> {
+        // Same coalesce-consecutive-free-clusters approach as FAT32's
+        // implementation, using $Bitmap instead of FAT entries as the
+        // free/used signal. Same honest performance caveat applies too:
+        // one bitmap-bit check per cluster is fine for our small test
+        // volumes, but a real multi-terabyte drive has billions of
+        // clusters — production code would read the bitmap in bulk
+        // chunks and check bits in memory, not one at a time through
+        // `ClusterBitmap::is_allocated`'s per-call disk read.
+        let total_clusters = self.boot_sector.total_sectors / self.boot_sector.sectors_per_cluster as u64;
+        let mut ranges = Vec::new();
+        let mut run_start: Option<u64> = None;
+
+        for cluster in 0..total_clusters {
+            let is_free = !self.bitmap.is_allocated(source, cluster).unwrap_or(true);
+
+            match (is_free, run_start) {
+                (true, None) => run_start = Some(cluster),
+                (false, Some(start)) => {
+                    ranges.push((self.boot_sector.cluster_offset(start), self.boot_sector.cluster_offset(cluster)));
+                    run_start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(start) = run_start {
+            ranges.push((self.boot_sector.cluster_offset(start), self.boot_sector.cluster_offset(total_clusters)));
+        }
+
+        Ok(ranges)
+    }
 }
 
 #[cfg(test)]
@@ -313,5 +345,28 @@ mod tests {
             b"This is a canary file for NTFS recovery testing. Bitmap-verified high-confidence recovery.\n";
         assert_eq!(recovered.len(), expected.len());
         assert_eq!(&recovered, expected);
+    }
+
+    /// Same Phase 6 prerequisite check as FAT32's: canary.txt's data
+    /// cluster (deliberately left free in the hand-built $Bitmap fixture)
+    /// must be reported by free_space_ranges.
+    #[test]
+    fn deleted_file_cluster_appears_in_free_space_ranges() {
+        let source = ImageFileSource::open(fixture_path())
+            .expect("fixture image missing — run scripts/make_ntfs_fixture.py first");
+        let parser = NtfsParser::new(&source).unwrap();
+
+        let deleted = parser.enumerate_deleted(&source).unwrap();
+        let entry = &deleted[0];
+
+        let free_ranges = parser.free_space_ranges(&source).unwrap();
+        let cluster_offset = parser.boot_sector.cluster_offset(entry.first_cluster);
+
+        let covered = free_ranges.iter().any(|&(start, end)| cluster_offset >= start && cluster_offset < end);
+        assert!(
+            covered,
+            "canary.txt's cluster at offset {cluster_offset} should be inside a free-space range, \
+             free ranges were: {free_ranges:?}"
+        );
     }
 }

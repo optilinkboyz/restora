@@ -25,7 +25,7 @@
 use crate::error::Result;
 use crate::fat32::boot_sector::Fat32BootSector;
 use crate::fat32::dir_entry::{format_name, parse_entry, EntrySlot, ATTR_DIRECTORY};
-use crate::fat32::fat_table::follow_chain;
+use crate::fat32::fat_table::{follow_chain, read_fat_entry};
 use crate::parser::{ClusterRange, DeletedEntry, FilesystemParser};
 use restora_infra::ByteSource;
 use std::collections::HashSet;
@@ -156,6 +156,39 @@ impl FilesystemParser for Fat32Parser {
         out.truncate(entry.file_size as usize);
         Ok(out)
     }
+
+    fn free_space_ranges(&self, source: &dyn ByteSource) -> Result<Vec<(u64, u64)>> {
+        // Total usable data clusters: everything past the reserved area
+        // and both FAT copies, divided into cluster-sized chunks. Cluster
+        // numbering starts at 2 (see boot_sector.rs), so we walk from
+        // there.
+        let cluster_size = self.boot_sector.cluster_size_bytes();
+        let total_bytes = self.boot_sector.total_sectors as u64 * self.boot_sector.bytes_per_sector as u64;
+        let data_area_bytes = total_bytes.saturating_sub(self.boot_sector.data_area_offset());
+        let total_clusters = 2 + data_area_bytes / cluster_size;
+
+        let mut ranges = Vec::new();
+        let mut run_start: Option<u32> = None;
+
+        for cluster in 2..total_clusters as u32 {
+            let entry = read_fat_entry(source, &self.boot_sector, cluster).unwrap_or(u32::MAX);
+            let is_free = entry == 0;
+
+            match (is_free, run_start) {
+                (true, None) => run_start = Some(cluster),
+                (false, Some(start)) => {
+                    ranges.push((self.boot_sector.cluster_offset(start), self.boot_sector.cluster_offset(cluster)));
+                    run_start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(start) = run_start {
+            ranges.push((self.boot_sector.cluster_offset(start), self.boot_sector.cluster_offset(total_clusters as u32)));
+        }
+
+        Ok(ranges)
+    }
 }
 
 #[cfg(test)]
@@ -197,6 +230,31 @@ mod tests {
             b"This is a canary file for FAT32 recovery testing. If you can read this after carving, the recovery worked.\n";
         assert_eq!(recovered.len(), expected.len());
         assert_eq!(&recovered, expected);
+    }
+
+    /// The Phase 6 prerequisite check: a deleted file's data must show up
+    /// as "free space" for a free-space wipe to have any reason to target
+    /// it. This confirms mtools' delete really does clear the FAT chain
+    /// entries (not just the directory entry), matching standard FAT
+    /// delete behavior.
+    #[test]
+    fn deleted_file_cluster_appears_in_free_space_ranges() {
+        let source = ImageFileSource::open(fixture_path())
+            .expect("fixture image missing — run scripts/make_fat32_fixture.sh first");
+        let parser = Fat32Parser::new(&source).unwrap();
+
+        let deleted = parser.enumerate_deleted(&source).unwrap();
+        let entry = &deleted[0];
+
+        let free_ranges = parser.free_space_ranges(&source).unwrap();
+        let cluster_offset = parser.boot_sector.cluster_offset(entry.first_cluster as u32);
+
+        let covered = free_ranges.iter().any(|&(start, end)| cluster_offset >= start && cluster_offset < end);
+        assert!(
+            covered,
+            "canary.txt's cluster at offset {cluster_offset} should be inside a free-space range, \
+             free ranges were: {free_ranges:?}"
+        );
     }
 
     /// The new Phase 2.5 milestone: a deleted file sitting inside a live

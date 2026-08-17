@@ -20,6 +20,12 @@ pub enum ApplicationError {
     #[error("no recognized filesystem found, and scan mode did not include carving")]
     NoFilesystemDetected,
 
+    #[error(
+        "refusing to run an overwrite-based wipe on what's been marked as an SSD — overwriting is \
+         unreliable on flash media due to wear leveling; use TRIM/Deallocate or crypto-erase instead"
+    )]
+    SsdOverwriteRefused,
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }

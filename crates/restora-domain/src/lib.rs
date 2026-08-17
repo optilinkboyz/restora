@@ -18,11 +18,13 @@ pub mod fat32;
 pub mod ntfs;
 pub mod parser;
 pub mod recoverable;
+pub mod secure_delete;
 
 pub use carving::{CarvedFile, Carver, SignatureCarver};
 pub use error::{DomainError, Result};
 pub use parser::{ClusterRange, DeletedEntry, FilesystemParser};
 pub use recoverable::{RecoverableFile, RecoveryLocator, RecoverySource};
+pub use secure_delete::{fill_pass, PassFill, WipePattern, WipeRng};
 
 /// Tries each known metadata-based parser in turn and returns the first
 /// one that recognizes the image. This is the shared home for filesystem

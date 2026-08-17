@@ -63,4 +63,17 @@ pub trait FilesystemParser {
     /// Convenience: resolve + read + return the recovered bytes, truncated
     /// to the entry's recorded file size.
     fn recover_bytes(&self, source: &dyn ByteSource, entry: &DeletedEntry) -> Result<Vec<u8>>;
+
+    /// Every byte range on disk this filesystem currently considers
+    /// unallocated — the set of places safe to overwrite without touching
+    /// any live file. This is exactly what a free-space wipe (Phase 6)
+    /// needs, and it's exactly the same underlying data
+    /// (`$Bitmap`/the FAT) each parser already reads for confidence
+    /// scoring — just walked exhaustively instead of only for specific
+    /// entries. Default implementation returns nothing, so any future
+    /// `FilesystemParser` (ext4, APFS — still unimplemented) doesn't
+    /// break the trait; both current implementors override it properly.
+    fn free_space_ranges(&self, _source: &dyn ByteSource) -> Result<Vec<(u64, u64)>> {
+        Ok(vec![])
+    }
 }
